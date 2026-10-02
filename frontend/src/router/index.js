@@ -4,6 +4,7 @@ import OutletMapView from '../views/OutletMapView.vue'
 import PickupOrderView from '../views/PickupOrderView.vue'
 import CategoryLedgerView from '../views/CategoryLedgerView.vue'
 import BatchTunnelView from '../views/BatchTunnelView.vue'
+import ContaminationEventView from '../views/ContaminationEventView.vue'
 import MachineWallView from '../views/MachineWallView.vue'
 import DeliveryBoardView from '../views/DeliveryBoardView.vue'
 
@@ -13,6 +14,7 @@ const routes = [
   { path: '/orders', name: 'pickup-orders', component: PickupOrderView, meta: { group: 'pickup' } },
   { path: '/categories', name: 'category-ledger', component: CategoryLedgerView, meta: { group: 'sorting' } },
   { path: '/batches', name: 'batch-tunnel', component: BatchTunnelView, meta: { group: 'washing' } },
+  { path: '/contamination', name: 'contamination-events', component: ContaminationEventView, meta: { group: 'washing' } },
   { path: '/machines', name: 'machine-wall', component: MachineWallView, meta: { group: 'finishing' } },
   { path: '/delivery', name: 'delivery-board', component: DeliveryBoardView, meta: { group: 'delivery' } }
 ]

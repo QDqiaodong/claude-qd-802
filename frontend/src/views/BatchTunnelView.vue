@@ -5,6 +5,8 @@
         <span class="ll-section-title">洗涤批次隧道式流转</span>
         <el-select v-model="statusFilter" placeholder="状态" clearable style="width: 120px" @change="load">
           <el-option label="在产" value="RUNNING" />
+          <el-option label="污染隔离" value="QUARANTINED" />
+          <el-option label="处置完成" value="DISPOSED" />
           <el-option label="已完成" value="DONE" />
         </el-select>
         <el-button type="primary" @click="openCreate">新建批次（排产）</el-button>
@@ -21,7 +23,7 @@
         >
           {{ s.stepName }} {{ s.batchCount }} 缸 / {{ s.totalWeight }}kg
         </el-tag>
-        <span class="ll-sub">在产 {{ summary.runningBatch || 0 }} 缸 · 在产重量 {{ summary.runningWeight || 0 }}kg · 已完工 {{ summary.doneBatch || 0 }} 缸</span>
+        <span class="ll-sub">在产 {{ summary.runningBatch || 0 }} 缸 · 隔离 {{ summary.quarantinedBatch || 0 }} 缸 · 处置完成 {{ summary.disposedBatch || 0 }} 缸 · 已完工 {{ summary.doneBatch || 0 }} 缸</span>
       </div>
     </div>
 
@@ -39,14 +41,18 @@
             v-for="b in lane.batches"
             :key="b.id"
             class="ll-batch-card"
-            :class="{ 'is-done': b.status === 'DONE' }"
+            :class="{ 'is-done': b.status === 'DONE', 'is-quarantined': b.status === 'QUARANTINED', 'is-disposed': b.status === 'DISPOSED' }"
           >
+            <div v-if="b.batchType === 'REWASH'" class="ll-rewash-strip">复洗批次 · 来源 {{ sourceBatchNo(b.sourceBatchId) }}</div>
+            <div v-if="(b.activeQuarantineCount || 0) > 0" class="ll-contam-strip">污染隔离 {{ b.activeQuarantineCount }} 起</div>
+            <div v-else-if="b.status === 'DISPOSED'" class="ll-disposed-strip">污染处置完成</div>
             <div class="ll-batch-no">
               <span>{{ b.batchNo }}</span>
-              <el-tag size="small" :type="b.status === 'DONE' ? 'info' : 'success'">
-                {{ b.status === 'DONE' ? '已完工' : '在产' }}
+              <el-tag size="small" :type="statusTagType(b.status)">
+                {{ statusName(b.status) }}
               </el-tag>
             </div>
+            <div v-if="b.quarantineSource" class="ll-contam-source">来源：{{ b.quarantineSource }}</div>
             <div class="ll-batch-meta">
               {{ b.categoryName }} · {{ b.weightKg }}kg · {{ b.waterTemp }}℃<br />
               洗涤剂 {{ b.detergentMl }}ml · {{ b.machineName || '未指定设备' }} · {{ b.operator || '未指派' }}
@@ -68,7 +74,7 @@
             </div>
 
             <el-button
-              v-if="b.status !== 'DONE'"
+              v-if="b.status === 'RUNNING'"
               type="primary"
               size="small"
               style="width: 100%"
@@ -77,6 +83,10 @@
             >
               下一工序 → {{ nextStepName(b) }}
             </el-button>
+            <el-button v-else-if="b.status === 'QUARANTINED'" size="small" type="danger" style="width: 100%" disabled>
+              污染隔离 · 禁止推进
+            </el-button>
+            <el-button v-else-if="b.status === 'DISPOSED'" size="small" type="success" style="width: 100%" disabled>复洗闭环完成</el-button>
             <el-button v-else size="small" style="width: 100%" disabled>折叠完成，已入库</el-button>
           </div>
         </div>
@@ -185,6 +195,19 @@ function nextStepName(batch) {
 
 function machineStatusName(status) {
   return { RUNNING: '运行', IDLE: '待机', FAULT: '故障' }[status] || status
+}
+
+function statusName(status) {
+  return { RUNNING: '在产', DONE: '已完工', HOLD: '挂起', QUARANTINED: '污染隔离', DISPOSED: '处置完成', DELETED: '已删除' }[status] || status
+}
+
+function statusTagType(status) {
+  return { RUNNING: 'success', DONE: 'info', HOLD: 'warning', QUARANTINED: 'danger', DISPOSED: 'success', DELETED: 'info' }[status] || 'info'
+}
+
+function sourceBatchNo(sourceBatchId) {
+  if (!sourceBatchId) return '—'
+  return batches.value.find((item) => item.id === sourceBatchId)?.batchNo || `#${sourceBatchId}`
 }
 
 async function load(keepFocus = false) {

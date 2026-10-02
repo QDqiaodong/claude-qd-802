@@ -27,8 +27,11 @@ public class WashBatch {
     private Integer waterTemp;
     private Long machineId;
     private String operator;
-    /** RUNNING 在产 / DONE 已完成 / HOLD 挂起 */
+    /** RUNNING 在产 / DONE 已完成 / HOLD 挂起 / QUARANTINED 污染隔离 */
     private String status;
+    /** NORMAL 正常批次 / REWASH 污染复洗批次 */
+    private String batchType;
+    private Long sourceBatchId;
     private LocalDateTime startTime;
     private LocalDateTime finishTime;
     private String remark;
@@ -39,6 +42,10 @@ public class WashBatch {
     private String machineCode;
     /** 进度百分比 */
     private Integer progress;
+    /** 当前有效隔离数量；大于 0 时任何工序都不能推进、不能按正常完工处理 */
+    private Integer activeQuarantineCount;
+    /** 灯墙 / 隧道展示用污染来源摘要 */
+    private String quarantineSource;
     /** 工序流转记录（嵌套 @Many 带出） */
     private List<BatchStep> steps;
     /** 品类（嵌套 @One 带出） */

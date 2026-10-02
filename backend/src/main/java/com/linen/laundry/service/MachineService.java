@@ -14,6 +14,7 @@ import com.linen.laundry.domain.OperationLog;
 import com.linen.laundry.domain.RepairOrder;
 import com.linen.laundry.dto.MachineFaultRequest;
 import com.linen.laundry.mapper.MachineMapper;
+import com.linen.laundry.mapper.ContaminationEventMapper;
 import com.linen.laundry.mapper.RepairOrderMapper;
 import com.linen.laundry.mapper.WashBatchMapper;
 import com.linen.laundry.repository.OperationLogRepository;
@@ -25,13 +26,16 @@ import com.linen.laundry.repository.OperationLogRepository;
 public class MachineService {
 
     private final MachineMapper machineMapper;
+    private final ContaminationEventMapper contaminationEventMapper;
     private final RepairOrderMapper repairMapper;
     private final WashBatchMapper batchMapper;
     private final OperationLogRepository logRepository;
 
-    public MachineService(MachineMapper machineMapper, RepairOrderMapper repairMapper,
+    public MachineService(MachineMapper machineMapper, ContaminationEventMapper contaminationEventMapper,
+                          RepairOrderMapper repairMapper,
                           WashBatchMapper batchMapper, OperationLogRepository logRepository) {
         this.machineMapper = machineMapper;
+        this.contaminationEventMapper = contaminationEventMapper;
         this.repairMapper = repairMapper;
         this.batchMapper = batchMapper;
         this.logRepository = logRepository;
@@ -64,10 +68,19 @@ public class MachineService {
     @Transactional
     public Machine nextStatus(Long id, MachineFaultRequest fault) {
         Machine machine = get(id);
+        if (contaminationEventMapper.countActiveByMachine(id) > 0) {
+            throw new BizException("【" + machine.getName() + "】存在已确认未放行的污染事件，请先完成复洗闭环后再切换设备状态");
+        }
         String current = machine.getStatus();
-        String target = "RUNNING".equals(current) ? "IDLE"
-                : "IDLE".equals(current) ? "FAULT"
-                : "RUNNING";
+        String target = switch (current) {
+            case "RUNNING" -> "IDLE";
+            case "IDLE" -> "FAULT";
+            case "QUARANTINED" -> "QUARANTINED";
+            default -> "RUNNING";
+        };
+        if ("QUARANTINED".equals(target)) {
+            throw new BizException("【" + machine.getName() + "】处于污染隔离，请在污染事件复核放行后操作");
+        }
 
         if ("FAULT".equals(target)) {
             if (fault == null || isBlank(fault.getFaultDesc()) || isBlank(fault.getRepairMan())) {
@@ -106,6 +119,9 @@ public class MachineService {
     @Transactional
     public RepairOrder reportFault(Long id, MachineFaultRequest fault) {
         Machine machine = get(id);
+        if (contaminationEventMapper.countActiveByMachine(id) > 0) {
+            throw new BizException("【" + machine.getName() + "】处于污染隔离，请先完成污染事件复洗闭环");
+        }
         if (fault == null || isBlank(fault.getFaultDesc())) {
             throw new BizException("故障描述不能为空");
         }
@@ -136,7 +152,8 @@ public class MachineService {
         if (machine != null) {
             long open = machine.getRepairs() == null ? 0
                     : machine.getRepairs().stream().filter(r -> "OPEN".equals(r.getStatus()) && !r.getId().equals(repairId)).count();
-            if (open == 0 && "FAULT".equals(machine.getStatus())) {
+            if (open == 0 && "FAULT".equals(machine.getStatus())
+                    && contaminationEventMapper.countActiveByMachine(machine.getId()) == 0) {
                 machineMapper.updateStatus(machine.getId(), "IDLE");
             }
         }
@@ -195,6 +212,9 @@ public class MachineService {
         }
         if ("FAULT".equals(status)) {
             return "故障";
+        }
+        if ("QUARANTINED".equals(status)) {
+            return "污染隔离";
         }
         return status;
     }

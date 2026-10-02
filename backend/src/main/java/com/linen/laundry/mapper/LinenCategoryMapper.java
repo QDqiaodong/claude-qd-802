@@ -97,6 +97,10 @@ public interface LinenCategoryMapper {
     @Update("UPDATE linen_category SET stock_qty = stock_qty + #{qty} WHERE id = #{id}")
     int addStock(@Param("id") Long id, @Param("qty") Integer qty);
 
+    /** 已完工批次被追认为污染时，先把按正常批次回补的库存扣回 */
+    @Update("UPDATE linen_category SET stock_qty = GREATEST(0, stock_qty - #{qty}) WHERE id = #{id}")
+    int subtractStock(@Param("id") Long id, @Param("qty") Integer qty);
+
     @Delete("DELETE FROM linen_category WHERE id = #{id}")
     int delete(@Param("id") Long id);
 }

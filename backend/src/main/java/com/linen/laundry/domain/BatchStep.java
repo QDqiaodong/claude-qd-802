@@ -16,6 +16,8 @@ public class BatchStep {
     private String stepName;
     /** 工序号 1~8 */
     private Integer stepOrder;
+    /** 该工序实际占用的设备 */
+    private Long machineId;
     private Integer waterTemp;
     private Integer detergentMl;
     private String operator;

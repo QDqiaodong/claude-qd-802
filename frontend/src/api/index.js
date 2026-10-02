@@ -81,3 +81,13 @@ export const machineApi = {
   create: (payload) => http.post('/machines', payload),
   remove: (id) => http.delete(`/machines/${id}`)
 }
+
+export const contaminationApi = {
+  list: () => http.get('/contamination/events'),
+  detail: (id) => http.get(`/contamination/events/${id}`),
+  create: (payload) => http.post('/contamination/events', payload),
+  confirm: (id, operator) => http.post(`/contamination/events/${id}/confirm`, { operator }),
+  release: (id, operator) => http.post(`/contamination/events/${id}/release`, { operator }),
+  startRewash: (payload) => http.post('/contamination/events/rewashes', payload),
+  failRewash: (rewashBatchId, reason) => http.post(`/contamination/events/rewashes/${rewashBatchId}/fail`, { reason })
+}

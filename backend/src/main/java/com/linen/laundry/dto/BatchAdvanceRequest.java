@@ -13,4 +13,6 @@ public class BatchAdvanceRequest {
     private String operator;
     private Integer waterTemp;
     private Integer detergentMl;
+    /** 进入烘干 / 烫平等后续工序时实际占用的设备 */
+    private Long machineId;
 }

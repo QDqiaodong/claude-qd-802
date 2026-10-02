@@ -27,9 +27,21 @@ public interface MachineMapper {
     @Select("""
             SELECT m.*,
                    (SELECT COUNT(*) FROM repair_order r
-                     WHERE r.machine_id = m.id AND r.status = 'OPEN') AS open_repair_count
+                     WHERE r.machine_id = m.id AND r.status = 'OPEN') AS open_repair_count,
+                   (SELECT COUNT(*) FROM contamination_event ce
+                     WHERE ce.machine_id = m.id AND ce.status = 'CONFIRMED') AS active_contamination_count,
+                   (SELECT COUNT(DISTINCT q.id)
+                      FROM contamination_event ce
+                      JOIN quarantine_record q ON q.event_id = ce.id
+                      LEFT JOIN quarantine_record_rewash qr ON qr.quarantine_id = q.id
+                      LEFT JOIN rewash_link rl ON rl.id = qr.rewash_id AND rl.status = 'DONE'
+                     WHERE ce.machine_id = m.id AND ce.status = 'CONFIRMED' AND q.status = 'ACTIVE'
+                       AND rl.id IS NULL) AS pending_quarantine_count,
+                   (SELECT GROUP_CONCAT(CONCAT(ce.event_no, ' ', ce.pollution_type) SEPARATOR '；')
+                      FROM contamination_event ce
+                     WHERE ce.machine_id = m.id AND ce.status = 'CONFIRMED') AS contamination_sources
               FROM machine m
-             ORDER BY FIELD(m.status, 'FAULT', 'RUNNING', 'IDLE'), m.code
+             ORDER BY FIELD(m.status, 'QUARANTINED', 'FAULT', 'RUNNING', 'IDLE'), m.code
             """)
     @Results(id = "machineMap", value = {
             @Result(property = "id", column = "id", id = true),
@@ -40,6 +52,9 @@ public interface MachineMapper {
             @Result(property = "runHours", column = "run_hours"),
             @Result(property = "lastMaintainAt", column = "last_maintain_at"),
             @Result(property = "openRepairCount", column = "open_repair_count"),
+            @Result(property = "activeContaminationCount", column = "active_contamination_count"),
+            @Result(property = "pendingQuarantineCount", column = "pending_quarantine_count"),
+            @Result(property = "contaminationSources", column = "contamination_sources"),
             @Result(property = "repairs", column = "id",
                     many = @Many(select = "com.linen.laundry.mapper.RepairOrderMapper.selectByMachineId"))
     })
@@ -48,6 +63,10 @@ public interface MachineMapper {
     @Select("SELECT * FROM machine WHERE id = #{id}")
     @ResultMap("machineMap")
     Machine selectById(@Param("id") Long id);
+
+    @Select("SELECT * FROM machine WHERE id = #{id} FOR UPDATE")
+    @ResultMap("machineMap")
+    Machine selectByIdForUpdate(@Param("id") Long id);
 
     @Select("SELECT * FROM machine WHERE status = #{status} ORDER BY code")
     @ResultMap("machineMap")
@@ -91,6 +110,7 @@ public interface MachineMapper {
                    SUM(CASE WHEN status = 'RUNNING' THEN 1 ELSE 0 END)         AS running_count,
                    SUM(CASE WHEN status = 'IDLE' THEN 1 ELSE 0 END)            AS idle_count,
                    SUM(CASE WHEN status = 'FAULT' THEN 1 ELSE 0 END)           AS fault_count,
+                   SUM(CASE WHEN status = 'QUARANTINED' THEN 1 ELSE 0 END)     AS quarantine_count,
                    IFNULL(ROUND(SUM(run_hours), 1), 0)                         AS run_hours_total
               FROM machine
             """)

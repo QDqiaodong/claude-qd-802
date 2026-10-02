@@ -107,8 +107,11 @@ const groups = [
   {
     key: 'washing',
     name: '洗涤',
-    desc: '批次排产 / 工序流转',
-    children: [{ name: '批次隧道流转', path: '/batches' }]
+    desc: '批次排产 / 工序流转 / 院感隔离',
+    children: [
+      { name: '批次隧道流转', path: '/batches' },
+      { name: '医院污染追溯', path: '/contamination' }
+    ]
   },
   {
     key: 'finishing',

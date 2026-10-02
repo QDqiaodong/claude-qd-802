@@ -10,23 +10,38 @@
         <el-tag type="success" effect="plain">运行 {{ summary.running_count || 0 }} 台</el-tag>
         <el-tag type="info" effect="plain">待机 {{ summary.idle_count || 0 }} 台</el-tag>
         <el-tag type="danger" effect="plain">故障 {{ summary.fault_count || 0 }} 台</el-tag>
+        <el-tag type="warning" effect="plain">污染隔离 {{ summary.quarantine_count || 0 }} 台</el-tag>
+        <el-tag type="warning" effect="plain">污染事件设备 {{ contaminatedMachineCount }} 台</el-tag>
+        <el-tag type="danger" effect="plain">待处置隔离批次 {{ pendingQuarantineTotal }} 批</el-tag>
         <el-tag effect="plain">累计运行 {{ summary.run_hours_total || 0 }} 小时</el-tag>
       </div>
     </div>
 
     <div class="ll-wall">
       <div v-for="m in machines" :key="m.id" class="ll-lamp" @click="onLampClick(m)">
-        <div class="ll-bulb" :class="bulbClass(m)">
+        <div class="ll-bulb" :class="[bulbClass(m), { 'is-contaminated': m.activeContaminationCount > 0 }]">
           <span>{{ statusName(m.status) }}</span>
           <span
             v-if="m.openRepairCount > 0"
-            style="position: absolute; top: -2px; right: -2px; background: #ffb300; color: #3a2600;
-                   border-radius: 9px; padding: 0 6px; font-size: 11px; line-height: 18px;"
+            class="ll-repair-badge"
           >
             {{ m.openRepairCount }} 单待修
           </span>
+          <span
+            v-if="m.pendingQuarantineCount > 0"
+            class="ll-contam-badge"
+          >
+            待处置 {{ m.pendingQuarantineCount }} 批
+          </span>
+          <span
+            v-else-if="m.activeContaminationCount > 0"
+            class="ll-contam-badge is-done"
+          >
+            污染事件 {{ m.activeContaminationCount }}
+          </span>
         </div>
         <div class="ll-lamp-name">{{ m.name }}</div>
+        <div v-if="m.contaminationSources" class="ll-lamp-contam">污染来源：{{ m.contaminationSources }}</div>
         <div class="ll-lamp-meta">{{ m.model }}<br />{{ typeName(m.machineType) }} · 容量 {{ m.capacityKg }}kg</div>
         <div class="ll-lamp-hours">{{ m.location }} · 累计 {{ m.runHours }}h</div>
       </div>
@@ -134,7 +149,7 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { machineApi } from '../api'
 
@@ -152,12 +167,20 @@ const submitting = ref(false)
 const faultForm = reactive({ faultDesc: '', repairMan: '', cost: 0 })
 const extraForm = reactive({ faultDesc: '', repairMan: '', cost: 0 })
 
+const contaminatedMachineCount = computed(() => machines.value.filter((m) => m.activeContaminationCount > 0).length)
+const pendingQuarantineTotal = computed(() => machines.value.reduce((sum, m) => sum + (m.pendingQuarantineCount || 0), 0))
+
 function bulbClass(m) {
-  return { 'is-running': m.status === 'RUNNING', 'is-idle': m.status === 'IDLE', 'is-fault': m.status === 'FAULT' }
+  return {
+    'is-running': m.status === 'RUNNING',
+    'is-idle': m.status === 'IDLE',
+    'is-fault': m.status === 'FAULT',
+    'is-quarantine': m.status === 'QUARANTINED'
+  }
 }
 
 function statusName(status) {
-  return { RUNNING: '运行', IDLE: '待机', FAULT: '故障' }[status] || status
+  return { RUNNING: '运行', IDLE: '待机', FAULT: '故障', QUARANTINED: '污染隔离' }[status] || status
 }
 
 function typeName(type) {
@@ -184,6 +207,10 @@ async function onLampClick(m) {
   if (m.status === 'FAULT') {
     currentRepairs.value = m.repairs || []
     repairVisible.value = true
+    return
+  }
+  if (m.status === 'QUARANTINED') {
+    ElMessage.warning('该设备处于污染隔离，请先完成污染事件复洗闭环')
     return
   }
   if (m.status === 'IDLE') {

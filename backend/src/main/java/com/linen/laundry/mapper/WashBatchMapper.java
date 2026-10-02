@@ -34,11 +34,24 @@ public interface WashBatchMapper {
                    c.name       AS category_name,
                    m.name       AS machine_name,
                    m.code       AS machine_code,
+                   qs.source    AS quarantine_source,
+                   qs.active_count AS active_quarantine_count,
                    ROUND(b.current_step_order * 100.0 / 8, 0) AS progress
               FROM wash_batch b
               LEFT JOIN linen_category c ON c.id = b.category_id
               LEFT JOIN machine m        ON m.id = b.machine_id
-             ORDER BY FIELD(b.status, 'RUNNING', 'HOLD', 'DONE'), b.start_time DESC
+              LEFT JOIN (
+                  SELECT q.batch_id,
+                         GROUP_CONCAT(CONCAT(e.event_no, ' ', e.pollution_type, ' @', ma.code) SEPARATOR '；') AS source,
+                         COUNT(*) AS active_count
+                    FROM quarantine_record q
+                    JOIN contamination_event e ON e.id = q.event_id
+                    JOIN machine ma ON ma.id = e.machine_id
+                   WHERE q.status = 'ACTIVE'
+                   GROUP BY q.batch_id
+              ) qs ON qs.batch_id = b.id
+             WHERE b.status <> 'DELETED'
+             ORDER BY FIELD(b.status, 'QUARANTINED', 'RUNNING', 'HOLD', 'DISPOSED', 'DONE'), b.start_time DESC
             """)
     @Results(id = "batchMap", value = {
             @Result(property = "id", column = "id", id = true),
@@ -50,11 +63,15 @@ public interface WashBatchMapper {
             @Result(property = "detergentMl", column = "detergent_ml"),
             @Result(property = "waterTemp", column = "water_temp"),
             @Result(property = "machineId", column = "machine_id"),
+            @Result(property = "batchType", column = "batch_type"),
+            @Result(property = "sourceBatchId", column = "source_batch_id"),
             @Result(property = "startTime", column = "start_time"),
             @Result(property = "finishTime", column = "finish_time"),
             @Result(property = "categoryName", column = "category_name"),
             @Result(property = "machineName", column = "machine_name"),
             @Result(property = "machineCode", column = "machine_code"),
+            @Result(property = "quarantineSource", column = "quarantine_source"),
+            @Result(property = "activeQuarantineCount", column = "active_quarantine_count"),
             @Result(property = "progress", column = "progress"),
             @Result(property = "steps", column = "id",
                     many = @Many(select = "com.linen.laundry.mapper.WashBatchMapper.selectSteps")),
@@ -69,19 +86,38 @@ public interface WashBatchMapper {
     @Select("SELECT * FROM batch_step WHERE batch_id = #{batchId} ORDER BY step_order")
     List<BatchStep> selectSteps(@Param("batchId") Long batchId);
 
+    @Select("SELECT batch_id FROM batch_step WHERE id = #{stepId}")
+    Long findBatchIdByStepId(@Param("stepId") Long stepId);
+
     @Select("""
             SELECT b.*,
                    c.name AS category_name,
                    m.name AS machine_name,
                    m.code AS machine_code,
+                   qs.source AS quarantine_source,
+                   qs.active_count AS active_quarantine_count,
                    ROUND(b.current_step_order * 100.0 / 8, 0) AS progress
               FROM wash_batch b
               LEFT JOIN linen_category c ON c.id = b.category_id
               LEFT JOIN machine m        ON m.id = b.machine_id
+              LEFT JOIN (
+                  SELECT q.batch_id,
+                         GROUP_CONCAT(CONCAT(e.event_no, ' ', e.pollution_type, ' @', ma.code) SEPARATOR '；') AS source,
+                         COUNT(*) AS active_count
+                    FROM quarantine_record q
+                    JOIN contamination_event e ON e.id = q.event_id
+                    JOIN machine ma ON ma.id = e.machine_id
+                   WHERE q.status = 'ACTIVE'
+                   GROUP BY q.batch_id
+              ) qs ON qs.batch_id = b.id
              WHERE b.id = #{id}
             """)
     @ResultMap("batchMap")
     WashBatch selectById(@Param("id") Long id);
+
+    @Select("SELECT * FROM wash_batch WHERE id = #{id} FOR UPDATE")
+    @ResultMap("batchMap")
+    WashBatch selectByIdForUpdate(@Param("id") Long id);
 
     /** 供品类 @Many 嵌套调用 */
     @Select("""
@@ -94,6 +130,7 @@ public interface WashBatchMapper {
               LEFT JOIN linen_category c ON c.id = b.category_id
               LEFT JOIN machine m        ON m.id = b.machine_id
              WHERE b.category_id = #{categoryId}
+               AND b.status <> 'DELETED'
              ORDER BY b.start_time DESC
              LIMIT 4
             """)
@@ -110,10 +147,10 @@ public interface WashBatchMapper {
     @Insert("""
             INSERT INTO wash_batch (batch_no, category_id, weight_kg, current_step, current_step_order,
                                     detergent_ml, water_temp, machine_id, operator, status,
-                                    start_time, finish_time, remark)
+                                    batch_type, source_batch_id, start_time, finish_time, remark)
             VALUES (#{batchNo}, #{categoryId}, #{weightKg}, #{currentStep}, #{currentStepOrder},
                     #{detergentMl}, #{waterTemp}, #{machineId}, #{operator}, #{status},
-                    #{startTime}, #{finishTime}, #{remark})
+                    #{batchType}, #{sourceBatchId}, #{startTime}, #{finishTime}, #{remark})
             """)
     @Options(useGeneratedKeys = true, keyProperty = "id", keyColumn = "id")
     int insert(WashBatch batch);
@@ -125,16 +162,38 @@ public interface WashBatchMapper {
                    water_temp = IFNULL(#{waterTemp}, water_temp),
                    detergent_ml = IFNULL(#{detergentMl}, detergent_ml),
                    operator = IFNULL(#{operator}, operator),
+                   machine_id = COALESCE(#{machineId}, machine_id),
                    status = #{status},
                    finish_time = #{finishTime}
-             WHERE id = #{id}
+             WHERE id = #{id} AND status <> 'QUARANTINED'
             """)
     int advance(WashBatch batch);
 
+    @Update("""
+            UPDATE wash_batch
+               SET status = 'QUARANTINED'
+             WHERE id = #{id} AND status <> 'QUARANTINED'
+            """)
+    int markQuarantined(@Param("id") Long id);
+
+    @Update("""
+            UPDATE wash_batch
+               SET status = 'DELETED'
+             WHERE id = #{id}
+            """)
+    int markDeleted(@Param("id") Long id);
+
+    @Update("""
+            UPDATE wash_batch
+               SET status = 'DISPOSED'
+             WHERE id = #{id} AND status = 'QUARANTINED'
+            """)
+    int markDisposed(@Param("id") Long id);
+
     @Insert("""
-            INSERT INTO batch_step (batch_id, step_code, step_name, step_order, water_temp,
+            INSERT INTO batch_step (batch_id, step_code, step_name, step_order, machine_id, water_temp,
                                     detergent_ml, operator, status, start_time, end_time)
-            VALUES (#{batchId}, #{stepCode}, #{stepName}, #{stepOrder}, #{waterTemp},
+            VALUES (#{batchId}, #{stepCode}, #{stepName}, #{stepOrder}, #{machineId}, #{waterTemp},
                     #{detergentMl}, #{operator}, #{status}, #{startTime}, #{endTime})
             """)
     @Options(useGeneratedKeys = true, keyProperty = "id", keyColumn = "id")
@@ -171,8 +230,11 @@ public interface WashBatchMapper {
             SELECT COUNT(*)                                                   AS batch_total,
                    SUM(CASE WHEN status = 'RUNNING' THEN 1 ELSE 0 END)        AS running_batch,
                    SUM(CASE WHEN status = 'DONE' THEN 1 ELSE 0 END)           AS done_batch,
+                   SUM(CASE WHEN status = 'QUARANTINED' THEN 1 ELSE 0 END)    AS quarantined_batch,
+                   SUM(CASE WHEN status = 'DISPOSED' THEN 1 ELSE 0 END)       AS disposed_batch,
                    IFNULL(ROUND(SUM(CASE WHEN status = 'RUNNING' THEN weight_kg ELSE 0 END), 0), 0) AS running_weight
               FROM wash_batch
+             WHERE status <> 'DELETED'
             """)
     Map<String, Object> summary();
 }
