@@ -33,4 +33,16 @@ public class Machine {
     private Integer openRepairCount;
     /** 维修记录（嵌套 @Many 带出） */
     private List<RepairOrder> repairs;
+
+    // ------- 污染追溯（非表字段，查询拼装） -------
+    /** 该设备未放行的已确认污染事件数（灯墙显示污染来源） */
+    private Integer activeContaminationCount;
+    /** 最近一条未放行污染事件号 */
+    private String activeEventNo;
+    /** 最近一条未放行污染类型中文名 */
+    private String activeContamTypeName;
+    /** 最近一条未放行污染事件影响窗口文案 */
+    private String activeAffectRange;
+    /** 该设备上待处置（隔离中）批次数 */
+    private Integer quarantinedBatchCount;
 }

@@ -6,6 +6,7 @@ import CategoryLedgerView from '../views/CategoryLedgerView.vue'
 import BatchTunnelView from '../views/BatchTunnelView.vue'
 import MachineWallView from '../views/MachineWallView.vue'
 import DeliveryBoardView from '../views/DeliveryBoardView.vue'
+import ContaminationView from '../views/ContaminationView.vue'
 
 const routes = [
   { path: '/', redirect: '/outlets' },
@@ -13,6 +14,7 @@ const routes = [
   { path: '/orders', name: 'pickup-orders', component: PickupOrderView, meta: { group: 'pickup' } },
   { path: '/categories', name: 'category-ledger', component: CategoryLedgerView, meta: { group: 'sorting' } },
   { path: '/batches', name: 'batch-tunnel', component: BatchTunnelView, meta: { group: 'washing' } },
+  { path: '/contamination', name: 'contamination', component: ContaminationView, meta: { group: 'washing' } },
   { path: '/machines', name: 'machine-wall', component: MachineWallView, meta: { group: 'finishing' } },
   { path: '/delivery', name: 'delivery-board', component: DeliveryBoardView, meta: { group: 'delivery' } }
 ]

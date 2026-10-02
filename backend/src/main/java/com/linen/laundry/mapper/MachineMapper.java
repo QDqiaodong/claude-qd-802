@@ -27,9 +27,25 @@ public interface MachineMapper {
     @Select("""
             SELECT m.*,
                    (SELECT COUNT(*) FROM repair_order r
-                     WHERE r.machine_id = m.id AND r.status = 'OPEN') AS open_repair_count
+                     WHERE r.machine_id = m.id AND r.status = 'OPEN') AS open_repair_count,
+                   (SELECT COUNT(*) FROM contamination_event e
+                     WHERE e.machine_id = m.id AND e.status = 'CONFIRMED') AS active_contamination_count,
+                   (SELECT e.event_no FROM contamination_event e
+                     WHERE e.machine_id = m.id AND e.status = 'CONFIRMED'
+                     ORDER BY e.found_time DESC, e.id DESC LIMIT 1) AS active_event_no,
+                   (SELECT e.contam_type FROM contamination_event e
+                     WHERE e.machine_id = m.id AND e.status = 'CONFIRMED'
+                     ORDER BY e.found_time DESC, e.id DESC LIMIT 1) AS active_contam_type,
+                   (SELECT CONCAT(DATE_FORMAT(e.affect_start, '%H:%i'), '-', DATE_FORMAT(e.affect_end, '%H:%i'))
+                      FROM contamination_event e
+                     WHERE e.machine_id = m.id AND e.status = 'CONFIRMED'
+                     ORDER BY e.found_time DESC, e.id DESC LIMIT 1) AS active_affect_range,
+                   (SELECT COUNT(DISTINCT i.batch_id) FROM batch_isolation i
+                     JOIN contamination_event e2 ON e2.id = i.event_id
+                    WHERE e2.machine_id = m.id AND i.status = 'ISOLATED') AS quarantined_batch_count
               FROM machine m
-             ORDER BY FIELD(m.status, 'FAULT', 'RUNNING', 'IDLE'), m.code
+             ORDER BY FIELD(m.status, 'FAULT', 'RUNNING', 'IDLE'),
+                      active_contamination_count DESC, m.code
             """)
     @Results(id = "machineMap", value = {
             @Result(property = "id", column = "id", id = true),
@@ -40,6 +56,11 @@ public interface MachineMapper {
             @Result(property = "runHours", column = "run_hours"),
             @Result(property = "lastMaintainAt", column = "last_maintain_at"),
             @Result(property = "openRepairCount", column = "open_repair_count"),
+            @Result(property = "activeContaminationCount", column = "active_contamination_count"),
+            @Result(property = "activeEventNo", column = "active_event_no"),
+            @Result(property = "activeContamTypeName", column = "active_contam_type"),
+            @Result(property = "activeAffectRange", column = "active_affect_range"),
+            @Result(property = "quarantinedBatchCount", column = "quarantined_batch_count"),
             @Result(property = "repairs", column = "id",
                     many = @Many(select = "com.linen.laundry.mapper.RepairOrderMapper.selectByMachineId"))
     })

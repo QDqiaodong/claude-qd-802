@@ -38,7 +38,9 @@ public class MachineService {
     }
 
     public List<Machine> list() {
-        return machineMapper.selectAll();
+        List<Machine> machines = machineMapper.selectAll();
+        machines.forEach(this::fillContamName);
+        return machines;
     }
 
     public Machine get(Long id) {
@@ -46,7 +48,16 @@ public class MachineService {
         if (machine == null) {
             throw new BizException("设备不存在：id=" + id);
         }
+        fillContamName(machine);
         return machine;
+    }
+
+    /** 灯墙污染角标的类型列存的是污染类型编码，统一转中文名 */
+    private void fillContamName(Machine machine) {
+        if (machine.getActiveContamTypeName() != null) {
+            machine.setActiveContamTypeName(
+                    com.linen.laundry.common.ContaminationType.nameOf(machine.getActiveContamTypeName()));
+        }
     }
 
     public Map<String, Object> summary() {

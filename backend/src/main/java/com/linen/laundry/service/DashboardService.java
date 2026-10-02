@@ -76,6 +76,8 @@ public class DashboardService {
         overview.setTodayClean(intOf(order.get("clean_total")));
         overview.setRunningBatch(intOf(batch.get("running_batch")));
         overview.setDoneBatch(intOf(batch.get("done_batch")));
+        overview.setQuarantinedBatch(intOf(batch.get("quarantined_batch")));
+        overview.setActiveContaminationCount(batchMapper.countActiveContaminationEvents());
         overview.setMachineCount(intOf(machine.get("machine_total")));
         overview.setFaultMachineCount(intOf(machine.get("fault_count")));
         overview.setShortageCategoryCount(categoryMapper.selectShortage().size());

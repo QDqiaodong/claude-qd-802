@@ -25,9 +25,22 @@
           >
             {{ m.openRepairCount }} 单待修
           </span>
+          <!-- 污染来源角标 -->
+          <span
+            v-if="m.activeContaminationCount > 0"
+            class="ll-contam-badge"
+          >
+            ☣ 污染 {{ m.activeContaminationCount }}
+          </span>
         </div>
         <div class="ll-lamp-name">{{ m.name }}</div>
         <div class="ll-lamp-meta">{{ m.model }}<br />{{ typeName(m.machineType) }} · 容量 {{ m.capacityKg }}kg</div>
+        <!-- 污染来源与待处置数量 -->
+        <div v-if="m.activeContaminationCount > 0" class="ll-lamp-contam">
+          ☣ {{ m.activeEventNo }} · {{ contamTypeName(m.activeContamTypeName) }}
+          <div v-if="m.activeAffectRange">影响 {{ m.activeAffectRange }}</div>
+          <div class="ll-lamp-contam-pending">待处置隔离批次 <b>{{ m.quarantinedBatchCount || 0 }}</b> 缸</div>
+        </div>
         <div class="ll-lamp-hours">{{ m.location }} · 累计 {{ m.runHours }}h</div>
       </div>
     </div>
@@ -35,7 +48,42 @@
       <span><i style="background: #2fbf71"></i>运行</span>
       <span><i style="background: #8a9496"></i>待机</span>
       <span><i style="background: #e34d4d"></i>故障</span>
+      <span><i style="background: #ff5d5d"></i>☣ 角标 = 存在未放行污染事件，灯下列出污染来源与待处置数量</span>
       <span>上次保养：{{ machines.map((m) => m.lastMaintainAt).filter(Boolean).sort().slice(-1)[0] || '—' }}</span>
+    </div>
+
+    <!-- 未放行污染事件：灯墙直接显示污染来源与待处置数量 -->
+    <div v-if="contaminatedMachines.length" class="ll-panel" style="padding: 12px 14px; margin-top: 14px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+        <span class="ll-section-title">☣ 设备污染来源与待处置隔离批次</span>
+        <el-button size="small" type="danger" plain @click="goContamination">前往污染追溯处置</el-button>
+      </div>
+      <el-table :data="contaminatedMachines" size="small">
+        <el-table-column label="污染设备" width="160">
+          <template #default="{ row }">{{ row.name }}（{{ row.code }}）</template>
+        </el-table-column>
+        <el-table-column label="污染事件" width="160">
+          <template #default="{ row }">{{ row.activeEventNo }}</template>
+        </el-table-column>
+        <el-table-column label="污染类型" width="130">
+          <template #default="{ row }">
+            <el-tag size="small" type="danger" effect="plain">{{ contamTypeName(row.activeContamTypeName) }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="影响时段" width="120">
+          <template #default="{ row }">{{ row.activeAffectRange || '—' }}</template>
+        </el-table-column>
+        <el-table-column label="待处置隔离批次" width="130">
+          <template #default="{ row }">
+            <el-tag size="small" type="danger" effect="dark">{{ row.quarantinedBatchCount || 0 }} 缸</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作">
+          <template #default>
+            <el-button size="small" type="primary" @click="goContamination">去隔离处置 / 复洗放行</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
     </div>
 
     <div class="ll-panel" style="padding: 12px 14px; margin-top: 14px;">
@@ -134,11 +182,13 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { machineApi } from '../api'
 
 const emit = defineEmits(['kpi-change'])
+const router = useRouter()
 
 const machines = ref([])
 const repairs = ref([])
@@ -151,6 +201,25 @@ const submitting = ref(false)
 
 const faultForm = reactive({ faultDesc: '', repairMan: '', cost: 0 })
 const extraForm = reactive({ faultDesc: '', repairMan: '', cost: 0 })
+
+// 设备灯墙：存在未放行污染事件的设备（污染来源 + 待处置数量）
+const contaminatedMachines = computed(() =>
+  machines.value.filter((m) => m.activeContaminationCount > 0)
+)
+
+function contamTypeName(code) {
+  return {
+    INFECTIOUS: '感染性污染',
+    BLOOD: '血渍/体液污染',
+    CHEMICAL: '化学污染',
+    RADIOACTIVE: '放射性污染',
+    OTHER: '其他污染'
+  }[code] || code
+}
+
+function goContamination() {
+  router.push('/contamination')
+}
 
 function bulbClass(m) {
   return { 'is-running': m.status === 'RUNNING', 'is-idle': m.status === 'IDLE', 'is-fault': m.status === 'FAULT' }

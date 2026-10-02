@@ -123,6 +123,15 @@ body,
   opacity: 0.82;
 }
 
+.ll-kpi.is-alert {
+  background: rgba(217, 83, 79, 0.28);
+  border-color: rgba(255, 140, 136, 0.65);
+}
+
+.ll-kpi.is-alert .ll-kpi-value {
+  color: #ffd9d7;
+}
+
 /* ===== 双排 Tab 导航 ===== */
 .ll-tabs-row {
   display: flex;
@@ -349,6 +358,48 @@ body,
   opacity: 0.82;
 }
 
+/* 污染隔离批次：红框 + 浅红底，隧道内明显区分 */
+.ll-batch-card.is-quarantine {
+  border: 1px solid #e8a9a7;
+  border-left: 4px solid #d9534f;
+  background: #fff6f5;
+  box-shadow: 0 0 0 1px rgba(217, 83, 79, 0.15), 0 2px 8px rgba(217, 83, 79, 0.18);
+}
+
+/* 复洗批次：橙色左边条 + 浅黄底 */
+.ll-batch-card.is-rewash {
+  border-left: 4px solid #d98b1f;
+  background: #fffaf0;
+}
+
+.ll-contam-flag {
+  margin-top: 5px;
+  background: #d9534f;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 4px;
+  padding: 2px 7px;
+  cursor: pointer;
+  display: inline-block;
+}
+
+.ll-rewash-flag {
+  margin-top: 5px;
+  font-size: 11px;
+  color: #9a6310;
+  background: #fdf0d9;
+  border: 1px solid #f2d8a7;
+  border-radius: 4px;
+  padding: 2px 7px;
+}
+
+.ll-rewash-flag.is-out {
+  color: #b3372f;
+  background: #fdecec;
+  border-color: #f3c9c7;
+}
+
 .ll-batch-no {
   font-size: 12px;
   font-weight: 700;
@@ -540,6 +591,45 @@ body,
   color: #cfe6e6;
   font-size: 11px;
   margin-top: 3px;
+}
+
+/* 设备灯墙：污染来源角标与待处置数量 */
+.ll-contam-badge {
+  position: absolute;
+  bottom: -6px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #ff5d5d;
+  color: #fff;
+  border: 1px solid #ffd0cf;
+  border-radius: 9px;
+  padding: 0 7px;
+  font-size: 10px;
+  line-height: 16px;
+  white-space: nowrap;
+  box-shadow: 0 0 10px rgba(255, 93, 93, 0.7);
+  animation: ll-blink 1.2s infinite;
+}
+
+.ll-lamp-contam {
+  margin-top: 6px;
+  color: #ffb4b0;
+  font-size: 10px;
+  line-height: 1.5;
+  background: rgba(217, 83, 79, 0.16);
+  border: 1px solid rgba(217, 83, 79, 0.4);
+  border-radius: 6px;
+  padding: 4px 6px;
+}
+
+.ll-lamp-contam-pending {
+  color: #ffd9d7;
+  margin-top: 2px;
+}
+
+.ll-lamp-contam-pending b {
+  color: #ff7a75;
+  font-size: 13px;
 }
 
 .ll-wall-legend {

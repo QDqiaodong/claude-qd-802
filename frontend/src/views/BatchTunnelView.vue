@@ -3,13 +3,12 @@
     <div class="ll-panel" style="padding: 12px 14px; margin-bottom: 12px;">
       <div style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center;">
         <span class="ll-section-title">洗涤批次隧道式流转</span>
-        <el-select v-model="statusFilter" placeholder="状态" clearable style="width: 120px" @change="load">
-          <el-option label="在产" value="RUNNING" />
-          <el-option label="已完成" value="DONE" />
-        </el-select>
         <el-button type="primary" @click="openCreate">新建批次（排产）</el-button>
         <el-button @click="load">刷新</el-button>
-        <span class="ll-sub">点卡片底部「下一工序」推进；工序必须按顺序，不能跳步；已完成工序变灰打勾</span>
+        <el-button v-if="quarantinedTotal > 0" type="danger" plain @click="goContamination">
+          污染隔离待处置 {{ quarantinedTotal }} 缸
+        </el-button>
+        <span class="ll-sub">点卡片底部「下一工序」推进；工序必须按顺序，不能跳步；污染隔离批次（红框）不能推进或按正常完工处理</span>
       </div>
       <div style="display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px;">
         <el-tag
@@ -20,6 +19,9 @@
           effect="plain"
         >
           {{ s.stepName }} {{ s.batchCount }} 缸 / {{ s.totalWeight }}kg
+        </el-tag>
+        <el-tag v-if="quarantinedTotal > 0" size="small" type="danger" effect="dark">
+          污染隔离 {{ quarantinedTotal }} 缸（隧道内红框展示，不计入在产站位）
         </el-tag>
         <span class="ll-sub">在产 {{ summary.runningBatch || 0 }} 缸 · 在产重量 {{ summary.runningWeight || 0 }}kg · 已完工 {{ summary.doneBatch || 0 }} 缸</span>
       </div>
@@ -39,14 +41,33 @@
             v-for="b in lane.batches"
             :key="b.id"
             class="ll-batch-card"
-            :class="{ 'is-done': b.status === 'DONE' }"
+            :class="{
+              'is-done': b.status === 'DONE',
+              'is-quarantine': b.status === 'QUARANTINED' && !b.rewashOrderId,
+              'is-rewash': b.rewashOrderId
+            }"
           >
             <div class="ll-batch-no">
-              <span>{{ b.batchNo }}</span>
-              <el-tag size="small" :type="b.status === 'DONE' ? 'info' : 'success'">
-                {{ b.status === 'DONE' ? '已完工' : '在产' }}
+              <span>
+                {{ b.batchNo }}
+                <el-tag v-if="b.rewashOrderId" size="small" type="warning" effect="dark">复洗</el-tag>
+              </span>
+              <el-tag size="small" :type="batchTagType(b)">
+                {{ batchStatusName(b.status) }}
               </el-tag>
             </div>
+
+            <!-- 污染来源横幅 -->
+            <div v-if="b.quarantineEventNo" class="ll-contam-flag" @click="goContamination">
+              <span>☣ 污染来源 {{ b.quarantineEventNo }}</span>
+            </div>
+            <div v-if="b.rewashStatus && b.sourceBatchNo" class="ll-rewash-flag">
+              复洗自 {{ b.sourceBatchNo }} · {{ rewashStatusName(b.rewashStatus) }}
+            </div>
+            <div v-else-if="b.rewashBatchNo && b.quarantineEventNo" class="ll-rewash-flag is-out">
+              已发起复洗 → {{ b.rewashBatchNo }}
+            </div>
+
             <div class="ll-batch-meta">
               {{ b.categoryName }} · {{ b.weightKg }}kg · {{ b.waterTemp }}℃<br />
               洗涤剂 {{ b.detergentMl }}ml · {{ b.machineName || '未指定设备' }} · {{ b.operator || '未指派' }}
@@ -68,7 +89,16 @@
             </div>
 
             <el-button
-              v-if="b.status !== 'DONE'"
+              v-if="b.status === 'QUARANTINED'"
+              type="danger"
+              size="small"
+              style="width: 100%"
+              @click="goContamination"
+            >
+              ☣ 污染隔离 · 去处置
+            </el-button>
+            <el-button
+              v-else-if="b.status !== 'DONE'"
               type="primary"
               size="small"
               style="width: 100%"
@@ -77,7 +107,9 @@
             >
               下一工序 → {{ nextStepName(b) }}
             </el-button>
-            <el-button v-else size="small" style="width: 100%" disabled>折叠完成，已入库</el-button>
+            <el-button v-else size="small" style="width: 100%" disabled>
+              {{ b.rewashOrderId ? '复洗完成，已入库' : '折叠完成，已入库' }}
+            </el-button>
           </div>
         </div>
       </div>
@@ -126,10 +158,12 @@
 
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { batchApi, categoryApi, machineApi } from '../api'
 
 const emit = defineEmits(['kpi-change'])
+const router = useRouter()
 
 const LANE_WIDTH = 216
 
@@ -139,7 +173,6 @@ const stepStats = ref([])
 const summary = ref({})
 const categories = ref([])
 const machines = ref([])
-const statusFilter = ref('')
 const focusIndex = ref(0)
 const advancingId = ref(null)
 const viewportRef = ref(null)
@@ -158,6 +191,13 @@ const createForm = reactive({
 
 const washers = computed(() => machines.value.filter((m) => m.machineType === 'WASHER'))
 
+// 隧道展示在产 + 污染隔离批次（隔离批次按当前停留工序进入对应站位，但红框标识且不能推进）
+const tunnelBatches = computed(() =>
+  batches.value.filter((b) => b.status === 'RUNNING' || b.status === 'QUARANTINED')
+)
+
+const quarantinedTotal = computed(() => batches.value.filter((b) => b.status === 'QUARANTINED').length)
+
 const lanes = computed(() => {
   const names = stepNames.value.length
     ? stepNames.value
@@ -166,9 +206,24 @@ const lanes = computed(() => {
   return names.map((stepName, index) => ({
     stepName,
     stepCode: codes[index],
-    batches: batches.value.filter((b) => b.currentStepOrder === index + 1)
+    batches: tunnelBatches.value.filter((b) => b.currentStepOrder === index + 1)
   }))
 })
+
+function batchStatusName(status) {
+  return { RUNNING: '在产', DONE: '已完工', HOLD: '挂起', QUARANTINED: '污染隔离' }[status] || status
+}
+function batchTagType(b) {
+  if (b.status === 'DONE') return 'info'
+  if (b.status === 'QUARANTINED') return 'danger'
+  return 'success'
+}
+function rewashStatusName(s) {
+  return { ACTIVE: '复洗在产', DONE: '复洗完成', FAILED: '复洗失败', DELETED: '已删除' }[s] || s
+}
+function goContamination() {
+  router.push('/contamination')
+}
 
 const visibleLanes = computed(() => Math.max(1, Math.floor(viewportWidth.value / LANE_WIDTH)))
 
@@ -188,7 +243,8 @@ function machineStatusName(status) {
 }
 
 async function load(keepFocus = false) {
-  const params = statusFilter.value ? { status: statusFilter.value } : {}
+  // 不带状态过滤：隧道需要同时展示在产与污染隔离批次（隔离批次红框、不可推进）
+  const params = {}
   const [list, names, stats, sum] = await Promise.all([
     batchApi.list(params),
     batchApi.steps(),

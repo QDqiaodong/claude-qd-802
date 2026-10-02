@@ -95,14 +95,18 @@ CREATE TABLE IF NOT EXISTS wash_batch (
   water_temp        INT          NOT NULL DEFAULT 0  COMMENT '水温 ℃',
   machine_id        BIGINT                DEFAULT NULL COMMENT '水洗机 id',
   operator          VARCHAR(32)           DEFAULT NULL COMMENT '当班操作员',
-  status            VARCHAR(16)  NOT NULL DEFAULT 'RUNNING' COMMENT 'RUNNING 在产 / HOLD 挂起 / DONE 已完成',
+  status            VARCHAR(16)  NOT NULL DEFAULT 'RUNNING' COMMENT 'RUNNING 在产 / HOLD 挂起 / DONE 已完成 / QUARANTINED 污染隔离中',
   start_time        DATETIME              DEFAULT NULL,
   finish_time       DATETIME              DEFAULT NULL,
+  rewash_order_id   BIGINT                DEFAULT NULL COMMENT '若本批次是污染复洗产生的新批次，对应复洗单 id；否则为空',
+  quarantine_was_done TINYINT  NOT NULL DEFAULT 0 COMMENT '被污染命中隔离前是否已是 DONE 批次（放行时据此决定恢复 RUNNING 还是保持 DONE）',
   remark            VARCHAR(255)          DEFAULT NULL,
   PRIMARY KEY (id),
   UNIQUE KEY uk_batch_no (batch_no),
   KEY idx_batch_category (category_id),
-  KEY idx_batch_machine (machine_id)
+  KEY idx_batch_machine (machine_id),
+  KEY idx_batch_status (status),
+  KEY idx_batch_rewash (rewash_order_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='洗涤批次';
 
 -- ---------- 6. 工序流转记录 ----------
@@ -114,12 +118,14 @@ CREATE TABLE IF NOT EXISTS batch_step (
   step_order   INT         NOT NULL            COMMENT '工序号 1~8',
   water_temp   INT         NOT NULL DEFAULT 0  COMMENT '本工序水温 ℃',
   detergent_ml INT         NOT NULL DEFAULT 0  COMMENT '本工序洗涤剂 ml',
+  machine_id   BIGINT               DEFAULT NULL COMMENT '本工序实际占用设备 id（污染事件按设备+时段命中批次的事实依据）',
   operator     VARCHAR(32)          DEFAULT NULL COMMENT '操作员',
   status       VARCHAR(16) NOT NULL DEFAULT 'PENDING' COMMENT 'DONE 已完成 / CURRENT 进行中 / PENDING 未开始',
   start_time   DATETIME             DEFAULT NULL,
   end_time     DATETIME             DEFAULT NULL,
   PRIMARY KEY (id),
-  KEY idx_step_batch (batch_id)
+  KEY idx_step_batch (batch_id),
+  KEY idx_step_machine_time (machine_id, start_time, end_time)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='工序流转记录';
 
 -- ---------- 7. 水洗机 / 烘干机设备台账 ----------
@@ -155,13 +161,89 @@ CREATE TABLE IF NOT EXISTS repair_order (
 -- ---------- 9. 车间操作日志（Spring Data JPA 辅助落库） ----------
 CREATE TABLE IF NOT EXISTS operation_log (
   id          BIGINT      NOT NULL AUTO_INCREMENT,
-  biz_type    VARCHAR(16)          DEFAULT NULL COMMENT 'OUTLET / CATEGORY / ORDER / BATCH / MACHINE',
+  biz_type    VARCHAR(16)          DEFAULT NULL COMMENT 'OUTLET / CATEGORY / ORDER / BATCH / MACHINE / CONTAMINATION / REWASH',
   biz_id      BIGINT               DEFAULT NULL,
   action_name VARCHAR(64)          DEFAULT NULL,
   detail      VARCHAR(255)         DEFAULT NULL,
   created_at  DATETIME             DEFAULT NULL,
   PRIMARY KEY (id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='车间操作日志';
+
+-- ---------- 10. 医院布草污染事件 ----------
+-- 事件由车间人员登记（DRAFT），确认（CONFIRMED）时按“设备 + 影响时段”找出经过该设备的批次并落隔离记录；
+-- 全部关联复洗批次完成后才可复核放行（RELEASED）。
+CREATE TABLE IF NOT EXISTS contamination_event (
+  id               BIGINT       NOT NULL AUTO_INCREMENT,
+  event_no         VARCHAR(32)  NOT NULL                COMMENT '污染事件号 CR+日期+序号',
+  machine_id       BIGINT       NOT NULL                COMMENT '发生设备 id',
+  contam_type      VARCHAR(24)  NOT NULL                COMMENT '污染类型：INFECTIOUS 感染性 / BLOOD 血渍 / CHEMICAL 化学污染 / RADIOACTIVE 放射性 / OTHER 其他',
+  found_time       DATETIME     NOT NULL                COMMENT '发现时间',
+  affect_start     DATETIME     NOT NULL                COMMENT '影响开始时间',
+  affect_end       DATETIME     NOT NULL                COMMENT '影响结束时间',
+  description      VARCHAR(255)          DEFAULT NULL   COMMENT '污染描述',
+  reporter         VARCHAR(32)           DEFAULT NULL   COMMENT '登记人',
+  status           VARCHAR(16)  NOT NULL DEFAULT 'DRAFT' COMMENT 'DRAFT 待确认 / CONFIRMED 已确认隔离中 / RELEASED 已复核放行',
+  confirmed_by     VARCHAR(32)           DEFAULT NULL   COMMENT '确认人',
+  confirmed_at     DATETIME              DEFAULT NULL   COMMENT '确认时间',
+  released_by      VARCHAR(32)           DEFAULT NULL   COMMENT '放行人',
+  released_at      DATETIME              DEFAULT NULL   COMMENT '放行时间',
+  release_note     VARCHAR(255)          DEFAULT NULL   COMMENT '放行备注',
+  created_at       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_event_no (event_no),
+  KEY idx_event_machine (machine_id),
+  KEY idx_event_status (status),
+  KEY idx_event_affect (machine_id, affect_start, affect_end)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='医院布草污染事件';
+
+-- ---------- 11. 批次隔离记录 ----------
+-- 一个污染事件命中一个批次只落一条：UNIQUE(event_id, batch_id) 在数据库层兜底，重复确认/并发请求都不会产生重复隔离记录。
+-- 记录命中时批次停留工序、当时绑定设备与命中原因，便于事件详情逐条解释“为什么被命中”。
+CREATE TABLE IF NOT EXISTS batch_isolation (
+  id               BIGINT       NOT NULL AUTO_INCREMENT,
+  event_id         BIGINT       NOT NULL                COMMENT '污染事件 id',
+  batch_id         BIGINT       NOT NULL                COMMENT '被命中隔离的批次 id',
+  hit_step_code    VARCHAR(16)           DEFAULT NULL   COMMENT '命中时批次停留工序编码',
+  hit_step_name    VARCHAR(16)           DEFAULT NULL   COMMENT '命中时批次停留工序名称',
+  hit_machine_id   BIGINT                DEFAULT NULL   COMMENT '命中时批次绑定设备 id',
+  hit_overlap      VARCHAR(32)           DEFAULT NULL   COMMENT '命中时与影响窗口重叠时长（文案，如 25分钟 / 1小时5分钟）',
+  hit_reason       VARCHAR(500) NOT NULL                COMMENT '命中原因解释：为何该批次在窗口内经过该设备',
+  status           VARCHAR(16)  NOT NULL DEFAULT 'ISOLATED' COMMENT 'ISOLATED 隔离中 / RELEASED 已随事件放行',
+  created_at       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  released_at      DATETIME              DEFAULT NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_isolation_event_batch (event_id, batch_id),
+  KEY idx_iso_batch (batch_id),
+  KEY idx_iso_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='污染批次隔离记录';
+
+-- ---------- 12. 复洗单 ----------
+-- 处置人员为隔离批次发起复洗：复洗必须新建一条可追溯批次 wash_batch（其 rewash_order_id 指向本单）并关联原批次。
+-- active_flag 为存储生成列：仅“有效复洗”（ACTIVE 在产 / DONE 完成）为 1，FAILED / DELETED 为 NULL。
+-- UNIQUE(isolation_id, active_flag) 保证同一隔离批次至多一份有效复洗——并发重复点击只能落一份。
+-- 放行规则：隔离批次必须恰好存在一份 DONE 复洗，且没有 ACTIVE / FAILED / DELETED 复洗，否则保持隔离。
+CREATE TABLE IF NOT EXISTS rewash_order (
+  id               BIGINT       NOT NULL AUTO_INCREMENT,
+  rewash_no        VARCHAR(32)  NOT NULL                COMMENT '复洗单号 RW+日期+序号',
+  isolation_id     BIGINT       NOT NULL                COMMENT '隔离记录 id',
+  event_id         BIGINT       NOT NULL                COMMENT '污染事件 id（冗余便于汇总）',
+  source_batch_id  BIGINT       NOT NULL                COMMENT '原隔离批次 id',
+  rewash_batch_id  BIGINT                DEFAULT NULL   COMMENT '复洗产生的新批次 id',
+  machine_id       BIGINT                DEFAULT NULL   COMMENT '复洗水洗机 id',
+  operator         VARCHAR(32)           DEFAULT NULL   COMMENT '发起人 / 复洗操作员',
+  reason           VARCHAR(255)          DEFAULT NULL   COMMENT '复洗原因 / 处置说明',
+  status           VARCHAR(16)  NOT NULL DEFAULT 'ACTIVE' COMMENT 'ACTIVE 在产 / DONE 完成 / FAILED 失败 / DELETED 已删除',
+  active_flag      TINYINT GENERATED ALWAYS AS (CASE WHEN status IN ('ACTIVE','DONE') THEN 1 ELSE NULL END) STORED COMMENT '有效复洗标记，用于唯一索引',
+  created_at       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  finished_at      DATETIME              DEFAULT NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_rewash_no (rewash_no),
+  UNIQUE KEY uk_rewash_active (isolation_id, active_flag),
+  KEY idx_rewash_event (event_id),
+  KEY idx_rewash_source (source_batch_id),
+  KEY idx_rewash_batch (rewash_batch_id),
+  KEY idx_rewash_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='污染批次复洗单';
 
 
 -- ---------- 种子数据：客户网点（12 家） ----------
@@ -332,6 +414,24 @@ INSERT INTO batch_step (batch_id, step_code, step_name, step_order, water_temp,
   (11, 'DRY', '烘干', 6, 75, 500, '孙红梅', 'DONE', TIMESTAMP(CURDATE(), '03:40:00') + INTERVAL 200 MINUTE, TIMESTAMP(CURDATE(), '03:40:00') + INTERVAL 235 MINUTE),
   (11, 'IRON', '烫平', 7, 160, 500, '孙红梅', 'DONE', TIMESTAMP(CURDATE(), '03:40:00') + INTERVAL 240 MINUTE, TIMESTAMP(CURDATE(), '03:40:00') + INTERVAL 275 MINUTE),
   (11, 'FOLD', '折叠', 8, 0, 500, '孙红梅', 'DONE', TIMESTAMP(CURDATE(), '03:40:00') + INTERVAL 280 MINUTE, TIMESTAMP(CURDATE(), '03:40:00') + INTERVAL 315 MINUTE);
+
+-- 回填每道工序实际占用设备：水洗 1~5 道用批次绑定水洗机，烘干用 1 号烘干机，烫平用 1 号烫平机，折叠不占设备。
+-- 这是污染事件“按设备 + 时段”反查批次的事实依据（batch_step.machine_id）。
+UPDATE batch_step s JOIN wash_batch b ON b.id = s.batch_id
+   SET s.machine_id = CASE
+       WHEN s.step_order <= 5 THEN b.machine_id
+       WHEN s.step_order = 6  THEN 6
+       WHEN s.step_order = 7  THEN 9
+       ELSE NULL END;
+
+-- ---------- 种子数据：一条待确认的医院布草污染事件 ----------
+-- 4 号隔离式水洗机（医感专区）晨间污染；确认后会按设备占用时段命中在该机漂洗的 PC-...-004（手术衣）。
+INSERT INTO contamination_event (event_no, machine_id, contam_type, found_time, affect_start, affect_end,
+                                 description, reporter, status, created_at) VALUES
+  (CONCAT('CR', DATE_FORMAT(CURDATE(), '%Y%m%d'), '-001'), 4, 'INFECTIOUS',
+   TIMESTAMP(CURDATE(), '07:40:00'), TIMESTAMP(CURDATE(), '06:00:00'), TIMESTAMP(CURDATE(), '08:00:00'),
+   '医感专区 4 号隔离式水洗机密封渗漏，疑似感染性布草交叉污染，需排查该机晨间全部过水批次',
+   '感控员-郑雅芳', 'DRAFT', NOW());
 
 -- ---------- 种子数据：设备维修单（7 张，含 2 张待修） ----------
 INSERT INTO repair_order (machine_id, fault_desc, repair_man, cost, report_time, finish_time, status) VALUES

@@ -27,6 +27,10 @@
           <div class="ll-kpi-value">{{ kpi.runningBatch || 0 }}</div>
           <div class="ll-kpi-label">在产批次</div>
         </div>
+        <div class="ll-kpi" :class="{ 'is-alert': kpi.quarantinedBatch > 0 }">
+          <div class="ll-kpi-value">{{ kpi.quarantinedBatch || 0 }}</div>
+          <div class="ll-kpi-label">污染隔离批次 / {{ kpi.activeContaminationCount || 0 }} 事件</div>
+        </div>
         <div class="ll-kpi">
           <div class="ll-kpi-value">{{ kpi.faultMachineCount || 0 }}</div>
           <div class="ll-kpi-label">故障设备 / 共 {{ kpi.machineCount || 0 }} 台</div>
@@ -107,8 +111,11 @@ const groups = [
   {
     key: 'washing',
     name: '洗涤',
-    desc: '批次排产 / 工序流转',
-    children: [{ name: '批次隧道流转', path: '/batches' }]
+    desc: '批次排产 / 工序流转 / 医感追溯',
+    children: [
+      { name: '批次隧道流转', path: '/batches' },
+      { name: '医院布草污染追溯', path: '/contamination' }
+    ]
   },
   {
     key: 'finishing',

@@ -37,7 +37,8 @@
 | 收送 | 收送单台账 | 表格 + 明细行展开 + 送净登记 |
 | 分拣 | 布草品类盘点 | 折叠台账 + 卡片上 −/+ 步进器改在库数，底部即时显示差异数与损益金额 |
 | 洗涤 | 批次隧道流转 | 批次卡片按工序横排成隧道，卡片底部唯一「下一工序」按钮，推进后整体左移动画 |
-| 后整理 | 设备状态灯墙 | 深底圆灯墙（运行绿 / 待机灰 / 故障红），点灯轮转状态，故障灯弹维修单表单 |
+| 洗涤 | 医院布草污染追溯 | 登记污染事件（设备 / 发现时间 / 影响起止 / 类型）→ 确认按设备占用时段命中批次并隔离 → 逐批复洗（生成可追溯新批次）→ 全部完成后复核放行；事件详情逐条解释命中原因 |
+| 后整理 | 设备状态灯墙 | 深底圆灯墙（运行绿 / 待机灰 / 故障红），点灯轮转状态，故障灯弹维修单表单；有未放行污染事件的设备亮 ☣ 角标并列出污染来源与待处置数量 |
 | 配送 | 配送调度看板 | 按司机 / 车牌聚合收送量与送达率 |
 
 ## 数据访问
@@ -53,6 +54,10 @@
 - 批次推进工序必须按顺序，不能跳步；最后一道折叠完成后批次收口并回补在库
 - 设备故障状态不允许排产；批次重量不得超过设备容量
 - 在库数低于最低周转量给出缺口数；在库数不得为负数
+- 污染隔离批次（QUARANTINED）无论停在哪道工序都不能推进或按正常完工处理，也不能删除；必须发起复洗
+- 复洗必须生成可追溯新批次（wash_batch.rewash_order_id 关联复洗单，复洗单关联原批次）；同一隔离批次至多一份有效复洗
+- 污染事件仅在全部关联复洗批次完成（无在产 / 失败 / 删除复洗）后才能复核放行；放行解除批次隔离
+- 污染命中判定：批次在 `batch_step.machine_id` 上的工序占用区间与事件影响时段重叠（进行中工序按持续到当前）；批次仅绑定设备无工序重叠时兜底命中
 
 ## 接口
 
@@ -64,3 +69,19 @@
 - `GET /api/orders`、`POST /api/orders`、`POST /api/orders/{id}/deliver`、`GET /api/orders/dispatch-board`
 - `GET /api/batches`、`GET /api/batches/steps`、`GET /api/batches/step-stats`、`POST /api/batches`、`POST /api/batches/{id}/advance`
 - `GET /api/machines`、`POST /api/machines/{id}/next-status`、`POST /api/machines/{id}/repairs`、`POST /api/machines/repairs/{id}/finish`
+- 医院布草污染追溯闭环（`/api/contamination`）：
+  - `GET /contamination/types`、`GET /contamination/events`、`GET /contamination/events/{id}`
+  - `POST /contamination/events`（登记）、`POST /contamination/events/{id}/confirm`（确认命中并隔离）
+  - `POST /contamination/events/{eventId}/isolations/{isolationId}/rewash`（发起复洗，生成新批次）
+  - `POST /contamination/rewash/{rewashId}/fail`、`POST /contamination/rewash/{rewashId}/delete`
+  - `POST /contamination/events/{id}/release`（复核放行）
+
+## 污染追溯并发一致性
+
+不靠前端隐藏按钮，状态一致性由数据库 + 行锁保证：
+
+1. 确认事件 / 发起复洗 / 复核放行均先 `SELECT … FOR UPDATE` 锁定事件（或隔离记录），串行化同资源并发请求；
+2. 事件状态机 DRAFT→CONFIRMED→RELEASED 用 `UPDATE … WHERE status=?` CAS 守卫，重复请求走幂等返回；
+3. `batch_isolation UNIQUE(event_id, batch_id)` 兜底不产生重复隔离记录；
+4. `rewash_order` 用存储生成列 `active_flag`（ACTIVE/DONE 为 1，否则 NULL）+ `UNIQUE(isolation_id, active_flag)`，保证同一隔离批次至多一份有效复洗；
+5. 批次推进先锁批次行并校验隔离态；放行前逐批复核复洗结果，任一在产 / 失败 / 删除都带原因拒绝。

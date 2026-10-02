@@ -81,3 +81,16 @@ export const machineApi = {
   create: (payload) => http.post('/machines', payload),
   remove: (id) => http.delete(`/machines/${id}`)
 }
+
+export const contaminationApi = {
+  types: () => http.get('/contamination/types'),
+  listEvents: () => http.get('/contamination/events'),
+  eventDetail: (id) => http.get(`/contamination/events/${id}`),
+  createEvent: (payload) => http.post('/contamination/events', payload),
+  confirmEvent: (id, payload) => http.post(`/contamination/events/${id}/confirm`, payload || {}),
+  releaseEvent: (id, payload) => http.post(`/contamination/events/${id}/release`, payload || {}),
+  createRewash: (eventId, isolationId, payload) =>
+    http.post(`/contamination/events/${eventId}/isolations/${isolationId}/rewash`, payload || {}),
+  failRewash: (rewashId, payload) => http.post(`/contamination/rewash/${rewashId}/fail`, payload || {}),
+  deleteRewash: (rewashId, payload) => http.post(`/contamination/rewash/${rewashId}/delete`, payload || {})
+}

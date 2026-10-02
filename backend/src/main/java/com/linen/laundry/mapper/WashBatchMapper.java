@@ -34,11 +34,30 @@ public interface WashBatchMapper {
                    c.name       AS category_name,
                    m.name       AS machine_name,
                    m.code       AS machine_code,
-                   ROUND(b.current_step_order * 100.0 / 8, 0) AS progress
+                   ROUND(b.current_step_order * 100.0 / 8, 0) AS progress,
+                   (SELECT i.id FROM batch_isolation i
+                     WHERE i.batch_id = b.id AND i.status = 'ISOLATED' LIMIT 1) AS isolation_id,
+                   (SELECT e.id FROM batch_isolation i
+                     JOIN contamination_event e ON e.id = i.event_id
+                    WHERE i.batch_id = b.id AND i.status = 'ISOLATED' LIMIT 1) AS quarantine_event_id,
+                   (SELECT e.event_no FROM batch_isolation i
+                     JOIN contamination_event e ON e.id = i.event_id
+                    WHERE i.batch_id = b.id AND i.status = 'ISOLATED' LIMIT 1) AS quarantine_event_no,
+                   (SELECT i.hit_reason FROM batch_isolation i
+                     WHERE i.batch_id = b.id AND i.status = 'ISOLATED' LIMIT 1) AS quarantine_reason,
+                   (SELECT r.status FROM rewash_order r
+                     WHERE r.rewash_batch_id = b.id LIMIT 1) AS rewash_status,
+                   (SELECT sb.batch_no FROM rewash_order r
+                     JOIN wash_batch sb ON sb.id = r.source_batch_id
+                    WHERE r.rewash_batch_id = b.id LIMIT 1) AS source_batch_no,
+                   (SELECT wb.batch_no FROM rewash_order r
+                     JOIN wash_batch wb ON wb.id = r.rewash_batch_id
+                     JOIN batch_isolation i ON i.id = r.isolation_id
+                    WHERE r.source_batch_id = b.id AND r.status IN ('ACTIVE','DONE') LIMIT 1) AS rewash_batch_no
               FROM wash_batch b
               LEFT JOIN linen_category c ON c.id = b.category_id
               LEFT JOIN machine m        ON m.id = b.machine_id
-             ORDER BY FIELD(b.status, 'RUNNING', 'HOLD', 'DONE'), b.start_time DESC
+             ORDER BY FIELD(b.status, 'QUARANTINED', 'RUNNING', 'HOLD', 'DONE'), b.start_time DESC
             """)
     @Results(id = "batchMap", value = {
             @Result(property = "id", column = "id", id = true),
@@ -52,10 +71,19 @@ public interface WashBatchMapper {
             @Result(property = "machineId", column = "machine_id"),
             @Result(property = "startTime", column = "start_time"),
             @Result(property = "finishTime", column = "finish_time"),
+            @Result(property = "rewashOrderId", column = "rewash_order_id"),
+            @Result(property = "quarantineWasDone", column = "quarantine_was_done"),
             @Result(property = "categoryName", column = "category_name"),
             @Result(property = "machineName", column = "machine_name"),
             @Result(property = "machineCode", column = "machine_code"),
             @Result(property = "progress", column = "progress"),
+            @Result(property = "isolationId", column = "isolation_id"),
+            @Result(property = "quarantineEventId", column = "quarantine_event_id"),
+            @Result(property = "quarantineEventNo", column = "quarantine_event_no"),
+            @Result(property = "quarantineReason", column = "quarantine_reason"),
+            @Result(property = "rewashStatus", column = "rewash_status"),
+            @Result(property = "sourceBatchNo", column = "source_batch_no"),
+            @Result(property = "rewashBatchNo", column = "rewash_batch_no"),
             @Result(property = "steps", column = "id",
                     many = @Many(select = "com.linen.laundry.mapper.WashBatchMapper.selectSteps")),
             @Result(property = "category", column = "category_id",
@@ -74,7 +102,26 @@ public interface WashBatchMapper {
                    c.name AS category_name,
                    m.name AS machine_name,
                    m.code AS machine_code,
-                   ROUND(b.current_step_order * 100.0 / 8, 0) AS progress
+                   ROUND(b.current_step_order * 100.0 / 8, 0) AS progress,
+                   (SELECT i.id FROM batch_isolation i
+                     WHERE i.batch_id = b.id AND i.status = 'ISOLATED' LIMIT 1) AS isolation_id,
+                   (SELECT e.id FROM batch_isolation i
+                     JOIN contamination_event e ON e.id = i.event_id
+                    WHERE i.batch_id = b.id AND i.status = 'ISOLATED' LIMIT 1) AS quarantine_event_id,
+                   (SELECT e.event_no FROM batch_isolation i
+                     JOIN contamination_event e ON e.id = i.event_id
+                    WHERE i.batch_id = b.id AND i.status = 'ISOLATED' LIMIT 1) AS quarantine_event_no,
+                   (SELECT i.hit_reason FROM batch_isolation i
+                     WHERE i.batch_id = b.id AND i.status = 'ISOLATED' LIMIT 1) AS quarantine_reason,
+                   (SELECT r.status FROM rewash_order r
+                     WHERE r.rewash_batch_id = b.id LIMIT 1) AS rewash_status,
+                   (SELECT sb.batch_no FROM rewash_order r
+                     JOIN wash_batch sb ON sb.id = r.source_batch_id
+                    WHERE r.rewash_batch_id = b.id LIMIT 1) AS source_batch_no,
+                   (SELECT wb.batch_no FROM rewash_order r
+                     JOIN wash_batch wb ON wb.id = r.rewash_batch_id
+                     JOIN batch_isolation i ON i.id = r.isolation_id
+                    WHERE r.source_batch_id = b.id AND r.status IN ('ACTIVE','DONE') LIMIT 1) AS rewash_batch_no
               FROM wash_batch b
               LEFT JOIN linen_category c ON c.id = b.category_id
               LEFT JOIN machine m        ON m.id = b.machine_id
@@ -89,7 +136,12 @@ public interface WashBatchMapper {
                    c.name AS category_name,
                    m.name AS machine_name,
                    m.code AS machine_code,
-                   ROUND(b.current_step_order * 100.0 / 8, 0) AS progress
+                   ROUND(b.current_step_order * 100.0 / 8, 0) AS progress,
+                   (SELECT i.id FROM batch_isolation i
+                     WHERE i.batch_id = b.id AND i.status = 'ISOLATED' LIMIT 1) AS isolation_id,
+                   (SELECT e.event_no FROM batch_isolation i
+                     JOIN contamination_event e ON e.id = i.event_id
+                    WHERE i.batch_id = b.id AND i.status = 'ISOLATED' LIMIT 1) AS quarantine_event_no
               FROM wash_batch b
               LEFT JOIN linen_category c ON c.id = b.category_id
               LEFT JOIN machine m        ON m.id = b.machine_id
@@ -110,10 +162,10 @@ public interface WashBatchMapper {
     @Insert("""
             INSERT INTO wash_batch (batch_no, category_id, weight_kg, current_step, current_step_order,
                                     detergent_ml, water_temp, machine_id, operator, status,
-                                    start_time, finish_time, remark)
+                                    start_time, finish_time, rewash_order_id, remark)
             VALUES (#{batchNo}, #{categoryId}, #{weightKg}, #{currentStep}, #{currentStepOrder},
                     #{detergentMl}, #{waterTemp}, #{machineId}, #{operator}, #{status},
-                    #{startTime}, #{finishTime}, #{remark})
+                    #{startTime}, #{finishTime}, #{rewashOrderId}, #{remark})
             """)
     @Options(useGeneratedKeys = true, keyProperty = "id", keyColumn = "id")
     int insert(WashBatch batch);
@@ -133,9 +185,9 @@ public interface WashBatchMapper {
 
     @Insert("""
             INSERT INTO batch_step (batch_id, step_code, step_name, step_order, water_temp,
-                                    detergent_ml, operator, status, start_time, end_time)
+                                    detergent_ml, machine_id, operator, status, start_time, end_time)
             VALUES (#{batchId}, #{stepCode}, #{stepName}, #{stepOrder}, #{waterTemp},
-                    #{detergentMl}, #{operator}, #{status}, #{startTime}, #{endTime})
+                    #{detergentMl}, #{machineId}, #{operator}, #{status}, #{startTime}, #{endTime})
             """)
     @Options(useGeneratedKeys = true, keyProperty = "id", keyColumn = "id")
     int insertStep(BatchStep step);
@@ -154,7 +206,7 @@ public interface WashBatchMapper {
     @Delete("DELETE FROM wash_batch WHERE id = #{id}")
     int delete(@Param("id") Long id);
 
-    /** 工序站位统计：当前停在各工序的批次与重量 */
+    /** 工序站位统计：当前停在各工序的在产（非隔离）批次与重量 */
     @Select("""
             SELECT b.current_step                        AS step_code,
                    MIN(b.current_step_order)             AS step_order,
@@ -171,8 +223,47 @@ public interface WashBatchMapper {
             SELECT COUNT(*)                                                   AS batch_total,
                    SUM(CASE WHEN status = 'RUNNING' THEN 1 ELSE 0 END)        AS running_batch,
                    SUM(CASE WHEN status = 'DONE' THEN 1 ELSE 0 END)           AS done_batch,
+                   SUM(CASE WHEN status = 'QUARANTINED' THEN 1 ELSE 0 END)    AS quarantined_batch,
                    IFNULL(ROUND(SUM(CASE WHEN status = 'RUNNING' THEN weight_kg ELSE 0 END), 0), 0) AS running_weight
               FROM wash_batch
             """)
     Map<String, Object> summary();
+
+    /** 悲观行锁：推进 / 发起复洗等动作先锁批次，防止与隔离确认并发交叉 */
+    @Select("SELECT * FROM wash_batch WHERE id = #{id} FOR UPDATE")
+    WashBatch selectByIdForUpdate(@Param("id") Long id);
+
+    /** 事件确认：批次转入污染隔离（不改变当前工序），并记录隔离前是否已完工 */
+    @Update("UPDATE wash_batch SET status = 'QUARANTINED', quarantine_was_done = #{wasDone} "
+            + "WHERE id = #{id} AND status <> 'QUARANTINED'")
+    int markQuarantined(@Param("id") Long id, @Param("wasDone") Integer wasDone);
+
+    /** 事件放行：隔离前尚未完工的批次解除隔离、恢复在产（停留工序不变，可继续推进）；
+     *  隔离前已完工（hit_was_done=1）的批次保持 DONE，不回退到在产。 */
+    @Update("UPDATE wash_batch SET status = IF(quarantine_was_done = 1, 'DONE', 'RUNNING'), "
+            + "finish_time = IF(quarantine_was_done = 1, finish_time, NULL) "
+            + "WHERE id = #{id} AND status = 'QUARANTINED'")
+    int releaseQuarantine(@Param("id") Long id);
+
+    /** 复洗失败 / 删除复洗：复洗批次留在污染隔离态，等待重新处置 */
+    @Update("""
+            UPDATE wash_batch SET status = 'QUARANTINED', finish_time = NOW()
+             WHERE id = #{id} AND rewash_order_id IS NOT NULL
+            """)
+    int markRewashHeld(@Param("id") Long id);
+
+    /** 是否存在由本批次派生的复洗记录（用于放行批次折叠完工时避免重复入库） */
+    @Select("""
+            SELECT COUNT(*) FROM rewash_order r
+             WHERE r.source_batch_id = #{batchId} AND r.status = 'DONE'
+            """)
+    int countDoneRewashFromSource(@Param("batchId") Long batchId);
+
+    /** 隔离中批次（用于隧道顶部待处置提示等） */
+    @Select("SELECT COUNT(*) FROM wash_batch WHERE status = 'QUARANTINED'")
+    int countQuarantined();
+
+    /** 未放行（隔离中）的污染事件数，用于顶部 KPI */
+    @Select("SELECT COUNT(*) FROM contamination_event WHERE status = 'CONFIRMED'")
+    int countActiveContaminationEvents();
 }

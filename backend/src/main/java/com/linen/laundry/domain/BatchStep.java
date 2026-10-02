@@ -18,6 +18,8 @@ public class BatchStep {
     private Integer stepOrder;
     private Integer waterTemp;
     private Integer detergentMl;
+    /** 本工序实际占用设备 id（污染命中依据） */
+    private Long machineId;
     private String operator;
     /** DONE 已完成 / CURRENT 进行中 / PENDING 未开始 */
     private String status;
